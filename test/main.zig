@@ -5,10 +5,15 @@ const aseprite = @import("aseprite");
 const testing = std.testing;
 
 test "sprite parsing" {
+    testing.log_level = .debug;
+
     const allocator = testing.allocator;
 
     // Load the aseprite file
-    const file = try std.fs.cwd().openFile("./test/capy_idle.aseprite", .{ .mode = .read_only });
+    const file = try std.fs.cwd().openFile(
+        "./test/capy_idle.aseprite",
+        .{ .mode = .read_only },
+    );
     defer file.close();
 
     // Parse the file
