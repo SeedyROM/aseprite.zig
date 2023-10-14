@@ -319,11 +319,15 @@ pub const ChunkData = union(enum) {
                 allocator.free(layer.name);
             },
             .color_profile => |color_profile| {
-                if (color_profile.icc_data) |icc_data| {
-                    _ = icc_data;
-                    // std.log.debug("Freeing ICC data: {any}", .{icc_data});
-                    // allocator.free(icc_data);
-                }
+                //TODO(SeedyROM): Work on ICC color profile data being free'd.
+
+                _ = color_profile;
+                // if (color_profile.icc_data != null) {
+                // std.log.warn("Attempting to free ICC data: {any}", .{color_profile.icc_data});
+
+                // std.log.debug("Freeing ICC data: {any}", .{icc_data});
+                // allocator.free(icc_data);
+                // }
             },
         }
     }

@@ -12,7 +12,7 @@ test "sprite file parsing" {
     // The path to our test sprite.
     const test_file_path = "test/capy_idle.aseprite";
 
-    // Read the size of the file from the OS
+    // Read the real size of the file from the OS
     var test_file_size: u32 = undefined;
     {
         const file = try std.fs.cwd().openFile(
