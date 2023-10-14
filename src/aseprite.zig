@@ -238,6 +238,7 @@ pub const ColorProfileChunk = struct {
 };
 
 fn parseColorProfileChunk(allocator: std.mem.Allocator, reader: anytype) !ChunkData {
+    _ = allocator;
     const _type = try reader.readEnum(ColorProfileType, .Little);
     const flags = try reader.readStruct(ColorProfileFlags);
     const fixed_gamma = try reader.readInt(u32, .Little);
@@ -248,21 +249,21 @@ fn parseColorProfileChunk(allocator: std.mem.Allocator, reader: anytype) !ChunkD
     // Parse ICC optional ICC data.
     var icc_data_length: ?u32 = null;
     var icc_data: ?[]u8 = null;
-    switch (_type) {
-        .embedded_icc_profile => {
-            icc_data_length = try reader.readInt(u32, .Little);
-            var icc_data_buf = allocator.alloc(u8, icc_data_length);
+    // switch (_type) {
+    //     .embedded_icc_profile => {
+    //         icc_data_length = try reader.readInt(u32, .Little);
+    //         var icc_data_buf = allocator.alloc(u8, icc_data_length);
 
-            // Check that we read the correct number of bytes.
-            var bytes_read = try reader.read(icc_data_buf);
-            if (bytes_read != icc_data_length) {
-                return error.InvalidColorProfileChunk;
-            }
+    //         // Check that we read the correct number of bytes.
+    //         var bytes_read = try reader.read(icc_data_buf);
+    //         if (bytes_read != icc_data_length) {
+    //             return error.InvalidColorProfileChunk;
+    //         }
 
-            icc_data = icc_data_buf;
-        },
-        else => {},
-    }
+    //         icc_data = icc_data_buf;
+    //     },
+    //     else => {},
+    // }
 
     return ChunkData{
         .color_profile = ColorProfileChunk{
@@ -306,21 +307,22 @@ pub const Chunk = struct {
 /// The data in a chunk.
 pub const ChunkData = union(enum) {
     layer: LayerChunk,
+    color_profile: ColorProfileChunk,
     // cel: CelChunk,
     // cel_extra: CelExtraChunk,
-    color_profile: ColorProfileChunk,
     // TODO(SeedyROM): Support the rest of the chunk types.
 
     fn deinit(self: ChunkData, allocator: std.mem.Allocator) void {
         switch (self) {
             .layer => |layer| {
-                std.log.debug("Freeing layer name: {any}", .{layer.name});
+                std.log.debug("Freeing layer name: {s}", .{layer.name});
                 allocator.free(layer.name);
             },
             .color_profile => |color_profile| {
                 if (color_profile.icc_data) |icc_data| {
-                    std.log.debug("Freeing ICC data: {any}", .{icc_data});
-                    allocator.free(icc_data);
+                    _ = icc_data;
+                    // std.log.debug("Freeing ICC data: {any}", .{icc_data});
+                    // allocator.free(icc_data);
                 }
             },
         }

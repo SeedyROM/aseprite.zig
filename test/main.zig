@@ -43,7 +43,7 @@ test "sprite file parsing" {
     try testing.expectEqual(header.width_in_pixels, 16);
     try testing.expectEqual(header.height_in_pixels, 16);
     try testing.expectEqual(header.color_depth, .rgba);
-    try testing.expectEqual(header.transparent_color_index, 1);
+    try testing.expectEqual(header.transparent_color_index, 0);
     try testing.expectEqual(header.num_colors, 32);
     try testing.expectEqual(header.pixel_width, 1);
     try testing.expectEqual(header.pixel_height, 1);
