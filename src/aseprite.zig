@@ -27,10 +27,10 @@ pub const Header = struct {
     flags: u32,
     _deprecated_speed: u16,
     transparent_color_index: u8,
-    number_of_colors: u16,
+    num_colors: u16,
     pixel_width: u8,
     pixel_height: u8,
-    grid_posiiton_x: i16,
+    grid_position_x: i16,
     grid_position_y: i16,
     grid_width: u16,
     grid_height: u16,
@@ -54,10 +54,10 @@ fn parseHeader(reader: anytype) !Header {
     // Skip 3 bytes of reserved data.
     _ = try reader.skipBytes(3, .{});
 
-    const number_of_colors = try reader.readInt(u16, .Little);
+    const num_colors = try reader.readInt(u16, .Little);
     const pixel_width = try reader.readInt(u8, .Little);
     const pixel_height = try reader.readInt(u8, .Little);
-    const grid_posiiton_x = try reader.readInt(i16, .Little);
+    const grid_position_x = try reader.readInt(i16, .Little);
     const grid_position_y = try reader.readInt(i16, .Little);
     const grid_width = try reader.readInt(u16, .Little);
     const grid_height = try reader.readInt(u16, .Little);
@@ -80,10 +80,10 @@ fn parseHeader(reader: anytype) !Header {
         .flags = flags,
         ._deprecated_speed = _deprecated_speed,
         .transparent_color_index = transparent_color_index,
-        .number_of_colors = number_of_colors,
+        .num_colors = num_colors,
         .pixel_width = pixel_width,
         .pixel_height = pixel_height,
-        .grid_posiiton_x = grid_posiiton_x,
+        .grid_position_x = grid_position_x,
         .grid_position_y = grid_position_y,
         .grid_width = grid_width,
         .grid_height = grid_height,
@@ -132,7 +132,7 @@ pub const LayerFlags = packed struct(u16) {
     background: bool,
     prefer_linked_cels: bool,
     display_collapsed: bool,
-    is_reference_layer: bool,
+    reference_layer: bool,
 
     _padding: u9,
 };
@@ -220,7 +220,7 @@ fn parseLayerChunk(allocator: std.mem.Allocator, reader: anytype) !ChunkData {
 pub const ColorProfileType = enum(u16) {
     none,
     srgb,
-    linear,
+    embedded_icc_profile,
 };
 
 pub const ColorProfileFlags = packed struct(u16) {
@@ -232,30 +232,64 @@ pub const ColorProfileFlags = packed struct(u16) {
 pub const ColorProfileChunk = struct {
     type: ColorProfileType,
     flags: ColorProfileFlags,
-    fixed_gamma: f32, // TODO(SeedyROM): This ain't fixed point 16.16... support this one day?
-    icc_data_length: ?u32, // TODO(SeedyROM): This is never used, but it's in the spec.
-    icc_data: ?[]u8, // TODO(SeedyROM): This is never used, but it's in the spec.
+    fixed_gamma: u32, // TODO(SeedyROM): This ain't fixed point 16.16... support this one day?
+    icc_data_length: ?u32 = null, // TODO(SeedyROM): This is never used, but it's in the spec.
+    icc_data: ?[]u8 = null, // TODO(SeedyROM): This is never used, but it's in the spec.
 };
 
-fn parseColorProfileChink() !void {}
+fn parseColorProfileChunk(allocator: std.mem.Allocator, reader: anytype) !ChunkData {
+    const _type = try reader.readEnum(ColorProfileType, .Little);
+    const flags = try reader.readStruct(ColorProfileFlags);
+    const fixed_gamma = try reader.readInt(u32, .Little);
+
+    // Skip 8 bytes of reserved data.
+    _ = try reader.skipBytes(8, .{});
+
+    // Parse ICC optional ICC data.
+    var icc_data_length: ?u32 = null;
+    var icc_data: ?[]u8 = null;
+    switch (_type) {
+        .embedded_icc_profile => {
+            icc_data_length = try reader.readInt(u32, .Little);
+            var icc_data_buf = allocator.alloc(u8, icc_data_length);
+
+            // Check that we read the correct number of bytes.
+            var bytes_read = try reader.read(icc_data_buf);
+            if (bytes_read != icc_data_length) {
+                return error.InvalidColorProfileChunk;
+            }
+
+            icc_data = icc_data_buf;
+        },
+        else => {},
+    }
+
+    return ChunkData{
+        .color_profile = ColorProfileChunk{
+            .type = _type,
+            .flags = flags,
+            .fixed_gamma = fixed_gamma,
+            .icc_data_length = icc_data_length,
+            .icc_data = icc_data,
+        },
+    };
+}
 
 /// The chunk types in an Aseprite file.
 pub const ChunkType = enum(u16) {
-    // Old palette chunks.
+    // Older palette chunk.
     older_palette = 0x0004,
+    // Old palette chunk.
     old_palette = 0x0011,
-
     layer = 0x2004,
     cel = 0x2005,
     cel_extra = 0x2006,
     color_profile = 0x2007,
     extern_files = 0x2008,
-
     /// Deprecated.
     mask = 0x2016,
     /// Never used.
     path = 0x2017,
-
     tags = 0x2018,
     palette = 0x2019,
     user_data = 0x2020,
@@ -280,10 +314,12 @@ pub const ChunkData = union(enum) {
     fn deinit(self: ChunkData, allocator: std.mem.Allocator) void {
         switch (self) {
             .layer => |layer| {
+                std.log.debug("Freeing layer name: {any}", .{layer.name});
                 allocator.free(layer.name);
             },
             .color_profile => |color_profile| {
                 if (color_profile.icc_data) |icc_data| {
+                    std.log.debug("Freeing ICC data: {any}", .{icc_data});
                     allocator.free(icc_data);
                 }
             },
@@ -309,6 +345,9 @@ fn parseChunk(allocator: std.mem.Allocator, reader: anytype) !?Chunk {
     switch (chunk_type) {
         .layer => {
             data = try parseLayerChunk(allocator, reader);
+        },
+        .color_profile => {
+            data = try parseColorProfileChunk(allocator, reader);
         },
         else => {
             std.log.debug("Skipping chunk of type {}", .{chunk_type});
@@ -361,29 +400,45 @@ fn parseFrame(allocator: std.mem.Allocator, reader: anytype) !Frame {
     };
 }
 
-pub const AsepriteFile = struct {
+pub const File = struct {
     allocator: std.mem.Allocator,
     header: Header,
     frames: []Frame,
 
-    pub fn deinit(self: AsepriteFile) void {
+    pub fn deinit(self: File) void {
         for (self.frames) |frame| {
             frame.deinit(self.allocator);
         }
         self.allocator.free(self.frames);
     }
 
-    pub inline fn frames(self: AsepriteFile) []Frame {
+    pub inline fn frames(self: File) []Frame {
         return self.frames;
     }
 
-    pub inline fn header(self: AsepriteFile) Header {
+    pub inline fn header(self: File) Header {
         return self.header;
+    }
+
+    pub inline fn width(self: File) u16 {
+        return self.header.width_in_pixels;
+    }
+
+    pub inline fn height(self: File) u16 {
+        return self.header.height_in_pixels;
+    }
+
+    pub inline fn colorDepth(self: File) ColorDepth {
+        return self.header.color_depth;
+    }
+
+    pub inline fn numFrames(self: File) u16 {
+        return self.header.num_frames;
     }
 };
 
 /// Parse an Aseprite file from a stream.
-pub fn parse(allocator: std.mem.Allocator, stream: anytype) !AsepriteFile {
+pub fn parse(allocator: std.mem.Allocator, stream: anytype) !File {
     var buffered_reader = bufferedReader(1024, stream);
     var reader = buffered_reader.reader();
 
@@ -396,7 +451,7 @@ pub fn parse(allocator: std.mem.Allocator, stream: anytype) !AsepriteFile {
         frames[i] = frame;
     }
 
-    return AsepriteFile{
+    return File{
         .allocator = allocator,
         .header = header,
         .frames = frames,
