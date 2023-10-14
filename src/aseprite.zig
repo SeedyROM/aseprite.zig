@@ -2,6 +2,13 @@ const std = @import("std");
 const fs = std.fs;
 const io = std.io;
 
+fn bufferedReader(
+    comptime buffer_size: comptime_int,
+    stream: anytype,
+) io.BufferedReader(buffer_size, @TypeOf(stream)) {
+    return .{ .unbuffered_reader = stream };
+}
+
 /// Depth of color in the image.
 const ColorDepth = enum(u16) {
     indexed = 8,
@@ -28,106 +35,6 @@ pub const Header = struct {
     grid_width: u16,
     grid_height: u16,
 };
-
-/// The header of a frame.
-pub const FrameHeader = struct {
-    size: u32,
-    magic: u16,
-    _old_num_chunks: u16,
-    duration: u16,
-    num_chunks: u32,
-};
-
-/// The chunk types in an Aseprite file.
-pub const ChunkType = enum(u16) {
-    layer = 0x2004,
-    cel = 0x2005,
-    cel_extra = 0x2006,
-    color_profile = 0x2007,
-    // TODO(SeedyROM): Support the rest of the chunk types.
-};
-
-/// The data in a chunk.
-pub const ChunkData = union(enum) {
-    layer: LayerChunk,
-    // cel: CelChunk,
-    // cel_extra: CelExtraChunk,
-    // color_profile: ColorProfileChunk,
-    // TODO(SeedyROM): Support the rest of the chunk types.
-};
-
-/// The flags in a layer.
-pub const LayerFlags = enum(u16) {
-    visible = 1,
-    editable = 2,
-    lock_movement = 4,
-    background = 8,
-    prefer_linked_cels = 16,
-    display_collapsed = 32,
-    is_reference_layer = 64,
-};
-
-/// The type of a layer.
-pub const LayerType = enum(u16) {
-    normal,
-    group,
-    tilemap,
-};
-
-/// The blend mode of a layer.
-pub const LayerBlendMode = enum(u16) {
-    normal,
-    multiply,
-    screen,
-    overlay,
-    darken,
-    lighten,
-    color_dodge,
-    color_burn,
-    hard_light,
-    soft_light,
-    difference,
-    exclusion,
-    hue,
-    saturation,
-    color,
-    luminosity,
-    addition,
-    subtract,
-    divide,
-};
-
-/// A layer in an Aseprite file.
-pub const LayerChunk = struct {
-    flags: LayerFlags,
-    type: LayerType,
-    child_level: u16,
-    default_width: u16,
-    default_height: u16,
-    blend_mode: LayerBlendMode,
-    opacity: u8,
-    name: []u8,
-};
-
-/// The chunk types in an Aseprite file.
-pub const Chunk = struct {
-    size: u32,
-    chunk_type: ChunkType,
-    data: ChunkData,
-};
-
-/// A frame in an Aseprite file.
-pub const Frame = struct {
-    header: FrameHeader,
-    chunks: []Chunk,
-};
-
-fn bufferedReader(
-    comptime buffer_size: comptime_int,
-    stream: anytype,
-) io.BufferedReader(buffer_size, @TypeOf(stream)) {
-    return .{ .unbuffered_reader = stream };
-}
 
 fn parseHeader(reader: anytype) !Header {
     const size = try reader.readInt(u32, .Little);
@@ -183,6 +90,15 @@ fn parseHeader(reader: anytype) !Header {
     };
 }
 
+/// The header of a frame.
+pub const FrameHeader = struct {
+    size: u32,
+    magic: u16,
+    _old_num_chunks: u16,
+    duration: u16,
+    num_chunks: u32,
+};
+
 fn parseFrameHeader(reader: anytype) !FrameHeader {
     const size = try reader.readInt(u32, .Little);
     const magic = try reader.readInt(u16, .Little);
@@ -208,19 +124,84 @@ fn parseFrameHeader(reader: anytype) !FrameHeader {
     };
 }
 
+/// The flags in a layer.
+pub const LayerFlags = packed struct(u16) {
+    visible: bool,
+    editable: bool,
+    lock_movement: bool,
+    background: bool,
+    prefer_linked_cels: bool,
+    display_collapsed: bool,
+    is_reference_layer: bool,
+
+    _padding: u9,
+};
+
+/// The type of a layer.
+pub const LayerType = enum(u16) {
+    normal,
+    group,
+    tilemap,
+};
+
+/// The blend mode of a layer.
+pub const LayerBlendMode = enum(u16) {
+    normal,
+    multiply,
+    screen,
+    overlay,
+    darken,
+    lighten,
+    color_dodge,
+    color_burn,
+    hard_light,
+    soft_light,
+    difference,
+    exclusion,
+    hue,
+    saturation,
+    color,
+    luminosity,
+    addition,
+    subtract,
+    divide,
+};
+
+/// A layer in an Aseprite file.
+pub const LayerChunk = struct {
+    flags: LayerFlags,
+    type: LayerType,
+    child_level: u16,
+    default_width: u16,
+    default_height: u16,
+    blend_mode: LayerBlendMode,
+    opacity: u8,
+    name: []u8,
+};
+
 fn parseLayerChunk(allocator: std.mem.Allocator, reader: anytype) !ChunkData {
-    const flags = try reader.readEnum(LayerFlags, .Little);
+    const flags = try reader.readStruct(LayerFlags);
     const _type = try reader.readEnum(LayerType, .Little);
     const child_level = try reader.readInt(u16, .Little);
     const default_width = try reader.readInt(u16, .Little);
     const default_height = try reader.readInt(u16, .Little);
     const blend_mode = try reader.readEnum(LayerBlendMode, .Little);
     const opacity = try reader.readInt(u8, .Little);
+
+    // Skip 3 bytes of reserved data.
+    _ = try reader.skipBytes(3, .{});
+
     const name_size = try reader.readInt(u16, .Little);
 
     // Allocate the name buffer.
     const name = try allocator.alloc(u8, name_size);
-    _ = try reader.read(name);
+    var bytes_read = try reader.read(name);
+    if (bytes_read != name_size) {
+        return error.InvalidLayerChunk;
+    }
+
+    // Print the name.
+    std.log.debug("Parsing layer (name): {s}", .{name});
 
     return ChunkData{
         .layer = LayerChunk{
@@ -236,10 +217,84 @@ fn parseLayerChunk(allocator: std.mem.Allocator, reader: anytype) !ChunkData {
     };
 }
 
+pub const ColorProfileType = enum(u16) {
+    none,
+    srgb,
+    linear,
+};
+
+pub const ColorProfileFlags = packed struct(u16) {
+    use_special_gamma: bool,
+    _padding: u15,
+};
+
+/// The color profile of an Aseprite file.
+pub const ColorProfileChunk = struct {
+    type: ColorProfileType,
+    flags: ColorProfileFlags,
+    fixed_gamma: f32, // TODO(SeedyROM): This ain't fixed point 16.16... support this one day?
+    icc_data_length: ?u32, // TODO(SeedyROM): This is never used, but it's in the spec.
+    icc_data: ?[]u8, // TODO(SeedyROM): This is never used, but it's in the spec.
+};
+
+fn parseColorProfileChink() !void {}
+
+/// The chunk types in an Aseprite file.
+pub const ChunkType = enum(u16) {
+    // Old palette chunks.
+    older_palette = 0x0004,
+    old_palette = 0x0011,
+
+    layer = 0x2004,
+    cel = 0x2005,
+    cel_extra = 0x2006,
+    color_profile = 0x2007,
+    extern_files = 0x2008,
+
+    /// Deprecated.
+    mask = 0x2016,
+    /// Never used.
+    path = 0x2017,
+
+    tags = 0x2018,
+    palette = 0x2019,
+    user_data = 0x2020,
+    slice = 0x2022,
+};
+
+/// The chunk types in an Aseprite file.
+pub const Chunk = struct {
+    size: u32,
+    chunk_type: ChunkType,
+    data: ChunkData,
+};
+
+/// The data in a chunk.
+pub const ChunkData = union(enum) {
+    layer: LayerChunk,
+    // cel: CelChunk,
+    // cel_extra: CelExtraChunk,
+    color_profile: ColorProfileChunk,
+    // TODO(SeedyROM): Support the rest of the chunk types.
+
+    fn deinit(self: ChunkData, allocator: std.mem.Allocator) void {
+        switch (self) {
+            .layer => |layer| {
+                allocator.free(layer.name);
+            },
+            .color_profile => |color_profile| {
+                if (color_profile.icc_data) |icc_data| {
+                    allocator.free(icc_data);
+                }
+            },
+        }
+    }
+};
+
 fn parseChunk(allocator: std.mem.Allocator, reader: anytype) !?Chunk {
     // Get the chunk size.
     const size = try reader.readInt(u32, .Little);
-    std.log.debug("Next chunk size: {any}", .{size});
+    std.log.debug("Next chunk size: {}", .{size});
 
     // Check if the chunk is too small to be valid.
     if (size < 6) {
@@ -248,7 +303,7 @@ fn parseChunk(allocator: std.mem.Allocator, reader: anytype) !?Chunk {
 
     // Get the chunk type.
     const chunk_type = try reader.readEnum(ChunkType, .Little);
-    std.log.debug("Next chunk type: {any}", .{chunk_type});
+    std.log.debug("Next chunk type: {}", .{chunk_type});
 
     var data: ChunkData = undefined;
     switch (chunk_type) {
@@ -256,7 +311,7 @@ fn parseChunk(allocator: std.mem.Allocator, reader: anytype) !?Chunk {
             data = try parseLayerChunk(allocator, reader);
         },
         else => {
-            std.log.debug("Skipping chunk of type {any}", .{chunk_type});
+            std.log.debug("Skipping chunk of type {}", .{chunk_type});
 
             // Skip the rest of the chunk.
             _ = try reader.skipBytes(size - 6, .{});
@@ -271,9 +326,22 @@ fn parseChunk(allocator: std.mem.Allocator, reader: anytype) !?Chunk {
     };
 }
 
+/// A frame in an Aseprite file.
+pub const Frame = struct {
+    header: FrameHeader,
+    chunks: []Chunk,
+
+    fn deinit(self: Frame, allocator: std.mem.Allocator) void {
+        for (self.chunks) |chunk| {
+            chunk.data.deinit(allocator);
+        }
+        allocator.free(self.chunks);
+    }
+};
+
 fn parseFrame(allocator: std.mem.Allocator, reader: anytype) !Frame {
     const header = try parseFrameHeader(reader);
-    std.log.debug("FrameHeader: {any}", .{header});
+    std.log.debug("FrameHeader: {}", .{header});
 
     var chunks = try allocator.alloc(Chunk, header.num_chunks);
 
@@ -283,7 +351,7 @@ fn parseFrame(allocator: std.mem.Allocator, reader: anytype) !Frame {
             continue;
         }
 
-        std.log.debug("Chunk: {any}", .{chunk.?});
+        std.log.debug("Chunk: {}", .{chunk.?});
         chunks[i] = chunk.?;
     }
 
@@ -293,17 +361,44 @@ fn parseFrame(allocator: std.mem.Allocator, reader: anytype) !Frame {
     };
 }
 
+pub const AsepriteFile = struct {
+    allocator: std.mem.Allocator,
+    header: Header,
+    frames: []Frame,
+
+    pub fn deinit(self: AsepriteFile) void {
+        for (self.frames) |frame| {
+            frame.deinit(self.allocator);
+        }
+        self.allocator.free(self.frames);
+    }
+
+    pub inline fn frames(self: AsepriteFile) []Frame {
+        return self.frames;
+    }
+
+    pub inline fn header(self: AsepriteFile) Header {
+        return self.header;
+    }
+};
+
 /// Parse an Aseprite file from a stream.
-pub fn parse(allocator: std.mem.Allocator, stream: anytype) !void {
+pub fn parse(allocator: std.mem.Allocator, stream: anytype) !AsepriteFile {
     var buffered_reader = bufferedReader(1024, stream);
     var reader = buffered_reader.reader();
 
     const header = try parseHeader(reader);
-    std.log.debug("Header: {any}", .{header});
+    std.log.debug("Header: {}", .{header});
 
     var frames = try allocator.alloc(Frame, header.num_frames);
     for (0..header.num_frames) |i| {
         const frame = try parseFrame(allocator, reader);
         frames[i] = frame;
     }
+
+    return AsepriteFile{
+        .allocator = allocator,
+        .header = header,
+        .frames = frames,
+    };
 }

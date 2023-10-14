@@ -5,7 +5,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const module = b.addModule("aseprite", .{
-        .source_file = .{ .path = "src/main.zig" },
+        .source_file = .{ .path = "src/aseprite.zig" },
     });
 
     const module_tests = b.addTest(.{
@@ -18,4 +18,9 @@ pub fn build(b: *std.Build) void {
     const run_main_tests = b.addRunArtifact(module_tests);
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&run_main_tests.step);
+
+    // TODO(SeedyROM): From !no ones uncle
+    // for build.zig i think all you need is to add
+    // const install_test = b.addInstallArtifact(unit_tests, .{}); and
+    // test_step.dependOn(&install_test.step);
 }
