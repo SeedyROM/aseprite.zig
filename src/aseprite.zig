@@ -395,7 +395,7 @@ fn parseFrame(allocator: std.mem.Allocator, reader: anytype) !Frame {
     const header = try parseFrameHeader(reader);
     std.log.debug("FrameHeader: {}", .{header});
 
-    var chunks = std.ArrayList(Chunk).init(allocator);
+    var chunks = std.ArrayList(Chunk).initCapacity(allocator, header.num_chunks);
 
     for (0..header.num_chunks) |_| {
         const chunk = try parseChunk(allocator, reader);
