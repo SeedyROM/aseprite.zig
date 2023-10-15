@@ -233,12 +233,11 @@ pub const ColorProfileChunk = struct {
     type: ColorProfileType,
     flags: ColorProfileFlags,
     fixed_gamma: u32, // TODO(SeedyROM): This ain't fixed point 16.16... support this one day?
-    icc_data_length: ?u32 = null, // TODO(SeedyROM): This is never used, but it's in the spec.
+    icc_data_length: u32 = 0, // TODO(SeedyROM): This is never used, but it's in the spec.
     icc_data: ?[]u8 = null, // TODO(SeedyROM): This is never used, but it's in the spec.
 };
 
 fn parseColorProfileChunk(allocator: std.mem.Allocator, reader: anytype) !ChunkData {
-    _ = allocator;
     const _type = try reader.readEnum(ColorProfileType, .Little);
     const flags = try reader.readStruct(ColorProfileFlags);
     const fixed_gamma = try reader.readInt(u32, .Little);
@@ -247,23 +246,23 @@ fn parseColorProfileChunk(allocator: std.mem.Allocator, reader: anytype) !ChunkD
     _ = try reader.skipBytes(8, .{});
 
     // Parse ICC optional ICC data.
-    var icc_data_length: ?u32 = null;
+    var icc_data_length: u32 = 0;
     var icc_data: ?[]u8 = null;
-    // switch (_type) {
-    //     .embedded_icc_profile => {
-    //         icc_data_length = try reader.readInt(u32, .Little);
-    //         var icc_data_buf = allocator.alloc(u8, icc_data_length);
+    switch (_type) {
+        .embedded_icc_profile => {
+            icc_data_length = try reader.readInt(u32, .Little);
+            var icc_data_buf = try allocator.alloc(u8, icc_data_length);
 
-    //         // Check that we read the correct number of bytes.
-    //         var bytes_read = try reader.read(icc_data_buf);
-    //         if (bytes_read != icc_data_length) {
-    //             return error.InvalidColorProfileChunk;
-    //         }
+            // Check that we read the correct number of bytes.
+            var bytes_read = try reader.read(icc_data_buf);
+            if (bytes_read != icc_data_length) {
+                return error.InvalidColorProfileChunk;
+            }
 
-    //         icc_data = icc_data_buf;
-    //     },
-    //     else => {},
-    // }
+            icc_data = icc_data_buf;
+        },
+        else => {},
+    }
 
     return ChunkData{
         .color_profile = ColorProfileChunk{
@@ -313,20 +312,28 @@ pub const ChunkData = union(enum) {
     // TODO(SeedyROM): Support the rest of the chunk types.
 
     fn deinit(self: ChunkData, allocator: std.mem.Allocator) void {
+        std.log.debug("Deinitializing chunk data.", .{});
+
+        std.log.debug("Chunk type: {}", .{self});
+
         switch (self) {
             .layer => |layer| {
                 std.log.debug("Freeing layer name: {s}", .{layer.name});
                 allocator.free(layer.name);
             },
             .color_profile => |color_profile| {
-                //TODO(SeedyROM): Work on ICC color profile data being free'd.
+                if (color_profile.icc_data_length == 0) {
+                    std.log.debug("No ICC data to free.", .{});
+                    return;
+                }
 
-                _ = color_profile;
-                // if (color_profile.icc_data != null) {
-                // std.log.warn("Attempting to free ICC data: {any}", .{color_profile.icc_data});
+                std.log.debug("ICC data length: {}", .{color_profile.icc_data_length});
 
-                // std.log.debug("Freeing ICC data: {any}", .{icc_data});
-                // allocator.free(icc_data);
+                return;
+
+                // if (color_profile.icc_data) |icc_data| {
+                //     std.log.warn("Attempting to free ICC data: {any}", .{icc_data});
+                //     allocator.free(icc_data);
                 // }
             },
         }
@@ -374,13 +381,13 @@ fn parseChunk(allocator: std.mem.Allocator, reader: anytype) !?Chunk {
 /// A frame in an Aseprite file.
 pub const Frame = struct {
     header: FrameHeader,
-    chunks: []Chunk,
+    chunks: std.ArrayList(Chunk),
 
     fn deinit(self: Frame, allocator: std.mem.Allocator) void {
-        for (self.chunks) |chunk| {
+        for (self.chunks.items) |chunk| {
             chunk.data.deinit(allocator);
         }
-        allocator.free(self.chunks);
+        self.chunks.deinit();
     }
 };
 
@@ -388,16 +395,16 @@ fn parseFrame(allocator: std.mem.Allocator, reader: anytype) !Frame {
     const header = try parseFrameHeader(reader);
     std.log.debug("FrameHeader: {}", .{header});
 
-    var chunks = try allocator.alloc(Chunk, header.num_chunks);
+    var chunks = std.ArrayList(Chunk).init(allocator);
 
-    for (0..header.num_chunks) |i| {
+    for (0..header.num_chunks) |_| {
         const chunk = try parseChunk(allocator, reader);
         if (chunk == null) {
             continue;
         }
 
         std.log.debug("Chunk: {}", .{chunk.?});
-        chunks[i] = chunk.?;
+        try chunks.append(chunk.?);
     }
 
     return Frame{
