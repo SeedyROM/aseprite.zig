@@ -53,6 +53,8 @@ test "raw sprite file parsing" {
 }
 
 test "sprite api" {
+    testing.log_level = .info;
+
     const file = try std.fs.cwd().openFile(
         test_file_path,
         .{ .mode = .read_only },
@@ -62,5 +64,6 @@ test "sprite api" {
     var sprite = try aseprite.fromFile(allocator, file);
     defer sprite.deinit();
 
-    try testing.expect(false);
+    // Check that the sprite has 1 layer
+    try testing.expectEqual(sprite.layers.items.len, 1);
 }

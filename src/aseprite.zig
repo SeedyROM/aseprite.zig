@@ -633,41 +633,78 @@ pub const Frame = struct {
 pub const Layer = struct {
     name: []const u8,
     frames: []Frame,
-    z_index: i16,
 };
 
+/// A sprite from an Aseprite file.
 pub const Sprite = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
 
-    // name: []const u8, //TODO(SeedyROM): Get the name from the file.
     width: u16,
     height: u16,
-    layers: []Layer,
+    layers: std.ArrayList(Layer),
 
+    /// Load a sprite from an open file.
     pub fn fromFile(allocator: std.mem.Allocator, file: std.fs.File) !Self {
-        const rawFile = try parseRaw(allocator, file.reader());
-        const layers = try allocator.alloc(Layer, rawFile.header.num_frames);
+        const raw_file = try parseRaw(allocator, file.reader());
+        defer raw_file.deinit();
 
-        return .{
+        var layers = try std.ArrayList(Layer).initCapacity(allocator, 16);
+
+        var sprite = Self{
             .allocator = allocator,
-            // .name = rawFile.header.name, // TODO(SeedyROM): Get the name from the file.
-            .width = rawFile.header.width_in_pixels,
-            .height = rawFile.header.height_in_pixels,
+            .width = raw_file.header.width_in_pixels,
+            .height = raw_file.header.height_in_pixels,
             .layers = layers,
         };
+
+        try sprite.getLayers(raw_file);
+
+        return sprite;
     }
 
+    /// Deinitialize the sprite.
     pub fn deinit(self: Self) void {
-        for (self.layers) |layer| {
+        // TODO: Deinit the layers.
+        for (self.layers.items) |layer| {
             for (layer.frames) |frame| {
-                frame.cel.texture.deinit(self.allocator);
+                _ = frame;
+                // TODO(SeedyROM): Deinit the texture.
+                // frame.cel.texture.deinit(self.allocator);
+            }
+
+            self.allocator.free(layer.frames);
+        }
+
+        self.layers.deinit();
+    }
+
+    fn getLayers(self: *Self, raw_file: raw.File) !void {
+        // The first frame has a set of layer chunks that define the layers in the file.
+        const first_frame = raw_file.frames[0];
+
+        // For each chunk in the first frame.
+        for (first_frame.chunks.items) |chunk| {
+            // If the chunk is not a layer chunk, skip it.
+            switch (chunk.data) {
+                // If the chunk is a layer chunk, add it to the list of layers.
+                .layer => |layer| {
+                    std.log.info("Found layer: {s}", .{layer.name});
+
+                    var frames = try self.allocator.alloc(Frame, raw_file.header.num_frames);
+                    try self.layers.append(Layer{
+                        .name = layer.name,
+                        .frames = frames,
+                    });
+                },
+                else => {},
             }
         }
     }
 };
 
+/// Load a sprite from an open file.
 pub fn fromFile(allocator: std.mem.Allocator, file: std.fs.File) !Sprite {
     return try Sprite.fromFile(allocator, file);
 }
