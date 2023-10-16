@@ -2,30 +2,15 @@ const std = @import("std");
 const fs = std.fs;
 const io = std.io;
 
-const Pixel = packed union {
-    indexed: packed struct {
-        index: u8,
-    },
-    grayscale: packed struct {
-        value: u16,
-    },
-    // NOTE(SeedyROM): This will fail, the order of the fields is wrong.
-    rgba: packed struct {
-        red: u8,
-        green: u8,
-        blue: u8,
-        alpha: u8,
-    },
-};
-
-fn bufferedReader(
-    comptime buffer_size: comptime_int,
-    stream: anytype,
-) io.BufferedReader(buffer_size, @TypeOf(stream)) {
-    return .{ .unbuffered_reader = stream };
-}
-
+/// The raw parsed data from an Aseprite file.
 const raw = struct {
+    fn bufferedReader(
+        comptime buffer_size: comptime_int,
+        stream: anytype,
+    ) io.BufferedReader(buffer_size, @TypeOf(stream)) {
+        return .{ .unbuffered_reader = stream };
+    }
+
     /// Depth of color in the image.
     const ColorDepth = enum(u16) {
         indexed = 8,
@@ -535,11 +520,11 @@ const raw = struct {
     }
 
     /// A frame in an Aseprite file.
-    pub const Frame = struct {
+    pub const RawFrame = struct {
         header: FrameHeader,
         chunks: std.ArrayList(Chunk),
 
-        fn deinit(self: Frame, allocator: std.mem.Allocator) void {
+        fn deinit(self: RawFrame, allocator: std.mem.Allocator) void {
             for (self.chunks.items) |chunk| {
                 chunk.data.deinit(allocator);
             }
@@ -547,7 +532,7 @@ const raw = struct {
         }
     };
 
-    fn parseFrame(allocator: std.mem.Allocator, reader: anytype) !Frame {
+    fn parseFrame(allocator: std.mem.Allocator, reader: anytype) !RawFrame {
         const header = try parseFrameHeader(reader);
         std.log.debug("FrameHeader: {}", .{header});
 
@@ -563,7 +548,7 @@ const raw = struct {
             try chunks.append(chunk.?);
         }
 
-        return Frame{
+        return .{
             .header = header,
             .chunks = chunks,
         };
@@ -572,7 +557,7 @@ const raw = struct {
     pub const File = struct {
         allocator: std.mem.Allocator,
         header: raw.Header,
-        frames: []raw.Frame,
+        frames: []raw.RawFrame,
 
         pub fn deinit(self: File) void {
             for (self.frames) |frame| {
@@ -580,42 +565,18 @@ const raw = struct {
             }
             self.allocator.free(self.frames);
         }
-
-        pub inline fn frames(self: File) []raw.Frame {
-            return self.frames;
-        }
-
-        pub inline fn header(self: File) raw.Header {
-            return self.header;
-        }
-
-        pub inline fn width(self: File) u16 {
-            return self.header.width_in_pixels;
-        }
-
-        pub inline fn height(self: File) u16 {
-            return self.header.height_in_pixels;
-        }
-
-        pub inline fn colorDepth(self: File) raw.ColorDepth {
-            return self.header.color_depth;
-        }
-
-        pub inline fn numFrames(self: File) u16 {
-            return self.header.num_frames;
-        }
     };
 };
 
 /// Parse an Aseprite file from a stream.
-pub fn parse(allocator: std.mem.Allocator, stream: anytype) !raw.File {
-    var buffered_reader = bufferedReader(1024, stream);
+pub fn parseRaw(allocator: std.mem.Allocator, stream: anytype) !raw.File {
+    var buffered_reader = raw.bufferedReader(1024, stream);
     var reader = buffered_reader.reader();
 
     const header = try raw.parseHeader(reader);
     std.log.debug("Header: {}", .{header});
 
-    var frames = try allocator.alloc(raw.Frame, header.num_frames);
+    var frames = try allocator.alloc(raw.RawFrame, header.num_frames);
     for (0..header.num_frames) |i| {
         const frame = try raw.parseFrame(allocator, reader);
         frames[i] = frame;
@@ -626,4 +587,87 @@ pub fn parse(allocator: std.mem.Allocator, stream: anytype) !raw.File {
         .header = header,
         .frames = frames,
     };
+}
+
+/// Kind of texture data.
+const TextureDataType = enum(u8) {
+    indexed,
+    grayscale,
+    rgba,
+};
+
+/// A texture in an Aseprite file.
+pub const Texture = struct {
+    data_type: TextureDataType,
+    width: u16,
+    height: u16,
+    data: []const u8,
+
+    pub fn deinit(self: Texture, allocator: std.mem.Allocator) void {
+        std.log.debug("Deinitializing texture.", .{});
+        std.log.debug("Texture data type: {}", .{self.data_type});
+        std.log.debug("Texture width: {}", .{self.width});
+        std.log.debug("Texture height: {}", .{self.height});
+        std.log.debug("Texture data: {any}", .{self.data});
+
+        allocator.free(self.data);
+    }
+};
+
+/// An animation cel in an Aseprite file.
+pub const Cel = struct {
+    duration: u16,
+    x_position: i16,
+    y_position: i16,
+    opacity_level: u8,
+    texture: Texture,
+};
+
+/// A frame in an Aseprite file.
+pub const Frame = struct {
+    raw: raw.RawFrame,
+    cel: Cel,
+};
+
+/// A layer in an Aseprite file.
+pub const Layer = struct {
+    name: []const u8,
+    frames: []Frame,
+    z_index: i16,
+};
+
+pub const Sprite = struct {
+    const Self = @This();
+
+    allocator: std.mem.Allocator,
+
+    // name: []const u8, //TODO(SeedyROM): Get the name from the file.
+    width: u16,
+    height: u16,
+    layers: []Layer,
+
+    pub fn fromFile(allocator: std.mem.Allocator, file: std.fs.File) !Self {
+        const rawFile = try parseRaw(allocator, file.reader());
+        const layers = try allocator.alloc(Layer, rawFile.header.num_frames);
+
+        return .{
+            .allocator = allocator,
+            // .name = rawFile.header.name, // TODO(SeedyROM): Get the name from the file.
+            .width = rawFile.header.width_in_pixels,
+            .height = rawFile.header.height_in_pixels,
+            .layers = layers,
+        };
+    }
+
+    pub fn deinit(self: Self) void {
+        for (self.layers) |layer| {
+            for (layer.frames) |frame| {
+                frame.cel.texture.deinit(self.allocator);
+            }
+        }
+    }
+};
+
+pub fn fromFile(allocator: std.mem.Allocator, file: std.fs.File) !Sprite {
+    return try Sprite.fromFile(allocator, file);
 }

@@ -3,15 +3,12 @@ const std = @import("std");
 const aseprite = @import("aseprite");
 
 const testing = std.testing;
+const allocator = testing.allocator;
 
-test "sprite file parsing" {
-    // Setup the logger and alias the allocator
-    testing.log_level = .debug;
-    const allocator = testing.allocator;
+// The path to our test sprite.
+const test_file_path = "test/capy_idle.aseprite";
 
-    // The path to our test sprite.
-    const test_file_path = "test/capy_idle.aseprite";
-
+test "raw sprite file parsing" {
     // Read the real size of the file from the OS
     var test_file_size: u32 = undefined;
     {
@@ -33,7 +30,7 @@ test "sprite file parsing" {
     defer file.close();
 
     // Parse the file from the reader
-    var aseprite_file = try aseprite.parse(allocator, file.reader());
+    var aseprite_file = try aseprite.parseRaw(allocator, file.reader());
     defer aseprite_file.deinit();
 
     // Check the header from expected known values...
@@ -51,4 +48,19 @@ test "sprite file parsing" {
     try testing.expectEqual(header.grid_position_y, 0);
     try testing.expectEqual(header.grid_width, 16);
     try testing.expectEqual(header.grid_height, 16);
+
+    // TODO(SeedyROM): Add more tests...
+}
+
+test "sprite api" {
+    const file = try std.fs.cwd().openFile(
+        test_file_path,
+        .{ .mode = .read_only },
+    );
+    defer file.close();
+
+    var sprite = try aseprite.fromFile(allocator, file);
+    defer sprite.deinit();
+
+    try testing.expect(false);
 }
