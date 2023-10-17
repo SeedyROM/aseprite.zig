@@ -632,6 +632,10 @@ pub const Cel = struct {
 pub const Frame = struct {
     cel: Cel,
 
+    pub inline fn getTexture(self: *const Frame) Texture {
+        return self.cel.texture;
+    }
+
     pub fn deinit(self: Frame, allocator: std.mem.Allocator) void {
         std.log.debug("Deinitializing frame.", .{});
         self.cel.deinit(allocator);
@@ -668,10 +672,10 @@ pub const Sprite = struct {
 
     /// Load a sprite from an open file.
     pub fn fromFile(allocator: std.mem.Allocator, file: std.fs.File) !Self {
+        var layers = try std.ArrayList(Layer).initCapacity(allocator, 16);
+
         const raw_file = try parseRaw(allocator, file.reader());
         defer raw_file.deinit();
-
-        var layers = try std.ArrayList(Layer).initCapacity(allocator, 16);
 
         var sprite = Self{
             .allocator = allocator,
@@ -687,6 +691,27 @@ pub const Sprite = struct {
         return sprite;
     }
 
+    /// Get a layer by name.
+    pub fn getLayerByName(self: *const Self, name: []const u8) ?Layer {
+        for (self.layers.items) |layer| {
+            if (std.mem.eql(u8, layer.name, name)) {
+                return layer;
+            }
+        }
+
+        return null;
+    }
+
+    /// Get a layer by index.
+    pub fn getLayerByIndex(self: *const Self, index: u16) ?Layer {
+        if (index >= self.layers.len) {
+            return null;
+        }
+
+        return self.layers.items[index];
+    }
+
+    /// Get a frame by index.
     /// Deinitialize the sprite.
     pub fn deinit(self: Self) void {
         for (self.layers.items) |layer| {
