@@ -2,6 +2,37 @@ const std = @import("std");
 const fs = std.fs;
 const io = std.io;
 
+/// STB FFI wrappers.
+const stb = struct {
+    const c = @cImport({
+        @cDefine("STB_IMAGE_WRITE_IMPLEMENTATION", "1");
+        @cInclude("include/stb_image_write.h");
+
+        @cDefine("STB_RECT_PACK_IMPLEMENTATION", "1");
+        @cInclude("include/stb_rect_pack.h");
+    });
+
+    fn write_png(
+        filename: []const u8,
+        width: u32,
+        height: u32,
+        num_channels: u32,
+        data: []const u8,
+        stride_in_bytes: u32,
+    ) !void {
+        if (c.stbi_write_png(
+            filename,
+            width,
+            height,
+            num_channels,
+            data,
+            stride_in_bytes,
+        ) != 0) {
+            return error.WritePNG;
+        }
+    }
+};
+
 /// The raw parsed data from an Aseprite file.
 const raw = struct {
     fn bufferedReader(
@@ -830,4 +861,92 @@ pub const Sprite = struct {
 /// Load a sprite from an open file.
 pub fn fromFile(allocator: std.mem.Allocator, file: std.fs.File) !Sprite {
     return try Sprite.fromFile(allocator, file);
+}
+
+// =============================================================================================
+// Testing
+// =============================================================================================
+
+const testing = std.testing;
+
+// The path to our test sprite.
+const test_file_path = "./sprites/simple.aseprite";
+
+test "raw sprite file parsing" {
+    // Read the real size of the file from the OS
+    var test_file_size: u32 = undefined;
+    {
+        const file = try std.fs.cwd().openFile(
+            test_file_path,
+            .{ .mode = .read_only },
+        );
+        defer file.close();
+
+        const stat = try file.stat();
+        test_file_size = @as(u32, @intCast(stat.size));
+    }
+
+    // Open the aseprite file
+    const file = try std.fs.cwd().openFile(
+        test_file_path,
+        .{ .mode = .read_only },
+    );
+    defer file.close();
+
+    // Parse the file from the reader
+    var aseprite_file = try parseRaw(testing.allocator, file.reader());
+    defer aseprite_file.deinit();
+
+    // Check the header from expected known values...
+    const header = aseprite_file.header;
+    try testing.expectEqual(header.size, test_file_size);
+    try testing.expectEqual(header.num_frames, 8);
+    try testing.expectEqual(header.width_in_pixels, 16);
+    try testing.expectEqual(header.height_in_pixels, 16);
+    try testing.expectEqual(header.color_depth, .rgba);
+    try testing.expectEqual(header.transparent_color_index, 0);
+    try testing.expectEqual(header.num_colors, 32);
+    try testing.expectEqual(header.pixel_width, 1);
+    try testing.expectEqual(header.pixel_height, 1);
+    try testing.expectEqual(header.grid_position_x, 0);
+    try testing.expectEqual(header.grid_position_y, 0);
+    try testing.expectEqual(header.grid_width, 16);
+    try testing.expectEqual(header.grid_height, 16);
+
+    // TODO(SeedyROM): Add more tests...
+}
+
+test "sprite api" {
+    testing.log_level = .info;
+
+    const file = try std.fs.cwd().openFile(
+        test_file_path,
+        .{ .mode = .read_only },
+    );
+    defer file.close();
+
+    var sprite = try fromFile(testing.allocator, file);
+    defer sprite.deinit();
+
+    // Check that the sprite has 1 layer
+    try testing.expectEqual(sprite.layers.items.len, 1);
+
+    // Check that the sprite has 8 frames
+    try testing.expectEqual(sprite.num_frames, 8);
+}
+
+test "stb.write_png" {
+    var white_square = std.mem.zeroes([16 * 16]u8);
+
+    var i: u32 = 0;
+    while (i < 16 * 16 * 4) {
+        white_square[i] = 255;
+        white_square[i + 1] = 255;
+        white_square[i + 2] = 255;
+        white_square[i + 3] = 255;
+
+        i += 4;
+    }
+
+    try stb.write_png("/tmp/white_square.png", 16, 16, 4, &white_square, 4);
 }
