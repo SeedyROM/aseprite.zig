@@ -6,7 +6,7 @@ const testing = std.testing;
 const allocator = testing.allocator;
 
 // The path to our test sprite.
-const test_file_path = "test/capy_idle.aseprite";
+const test_file_path = "test/simple.aseprite";
 
 test "raw sprite file parsing" {
     // Read the real size of the file from the OS
@@ -66,4 +66,7 @@ test "sprite api" {
 
     // Check that the sprite has 1 layer
     try testing.expectEqual(sprite.layers.items.len, 1);
+
+    // Check that the sprite has 8 frames
+    try testing.expectEqual(sprite.num_frames, 8);
 }

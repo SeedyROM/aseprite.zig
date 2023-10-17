@@ -7,7 +7,7 @@ This is a [Zig](https://ziglang.org/) library to read (possibly write) and work 
 ## Goals:
 
 - [ ] Support a large subset of the Aseprite file format
-    - [ ] Read .aseprite files
+    - [x] Read .aseprite files
     - [ ] **TBD**
 - [ ] Create a powerful API to work with Aseprite files
 - [ ] Create a utility library/cli to make it easy to use Aseprite files in your own projects

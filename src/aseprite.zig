@@ -590,11 +590,7 @@ pub fn parseRaw(allocator: std.mem.Allocator, stream: anytype) !raw.File {
 }
 
 /// Kind of texture data.
-const TextureDataType = enum(u8) {
-    indexed,
-    grayscale,
-    rgba,
-};
+const TextureDataType = raw.ColorDepth;
 
 /// A texture in an Aseprite file.
 pub const Texture = struct {
@@ -621,18 +617,41 @@ pub const Cel = struct {
     y_position: i16,
     opacity_level: u8,
     texture: Texture,
+
+    pub fn deinit(self: Cel, allocator: std.mem.Allocator) void {
+        std.log.debug("Deinitializing cel.", .{});
+        std.log.debug("Cel duration: {}", .{self.duration});
+        std.log.debug("Cel x position: {}", .{self.x_position});
+        std.log.debug("Cel y position: {}", .{self.y_position});
+        std.log.debug("Cel opacity level: {}", .{self.opacity_level});
+        self.texture.deinit(allocator);
+    }
 };
 
 /// A frame in an Aseprite file.
 pub const Frame = struct {
-    raw: raw.RawFrame,
     cel: Cel,
+
+    pub fn deinit(self: Frame, allocator: std.mem.Allocator) void {
+        std.log.debug("Deinitializing frame.", .{});
+        self.cel.deinit(allocator);
+    }
 };
 
 /// A layer in an Aseprite file.
 pub const Layer = struct {
     name: []const u8,
     frames: []Frame,
+
+    pub fn deinit(self: Layer, allocator: std.mem.Allocator) void {
+        std.log.debug("Deinitializing layer.", .{});
+        std.log.debug("Layer name: {s}", .{self.name});
+        for (self.frames) |frame| {
+            frame.deinit(allocator);
+        }
+        allocator.free(self.name);
+        allocator.free(self.frames);
+    }
 };
 
 /// A sprite from an Aseprite file.
@@ -641,6 +660,8 @@ pub const Sprite = struct {
 
     allocator: std.mem.Allocator,
 
+    color_depth: raw.ColorDepth,
+    num_frames: u16,
     width: u16,
     height: u16,
     layers: std.ArrayList(Layer),
@@ -654,33 +675,27 @@ pub const Sprite = struct {
 
         var sprite = Self{
             .allocator = allocator,
+            .color_depth = raw_file.header.color_depth,
+            .num_frames = raw_file.header.num_frames,
             .width = raw_file.header.width_in_pixels,
             .height = raw_file.header.height_in_pixels,
             .layers = layers,
         };
 
-        try sprite.getLayers(raw_file);
+        try sprite.loadInternalData(raw_file);
 
         return sprite;
     }
 
     /// Deinitialize the sprite.
     pub fn deinit(self: Self) void {
-        // TODO: Deinit the layers.
         for (self.layers.items) |layer| {
-            for (layer.frames) |frame| {
-                _ = frame;
-                // TODO(SeedyROM): Deinit the texture.
-                // frame.cel.texture.deinit(self.allocator);
-            }
-
-            self.allocator.free(layer.frames);
+            layer.deinit(self.allocator);
         }
-
         self.layers.deinit();
     }
 
-    fn getLayers(self: *Self, raw_file: raw.File) !void {
+    fn loadInternalData(self: *Self, raw_file: raw.File) !void {
         // The first frame has a set of layer chunks that define the layers in the file.
         const first_frame = raw_file.frames[0];
 
@@ -693,13 +708,96 @@ pub const Sprite = struct {
                     std.log.info("Found layer: {s}", .{layer.name});
 
                     var frames = try self.allocator.alloc(Frame, raw_file.header.num_frames);
+
+                    const name = try self.allocator.alloc(u8, layer.name.len);
+                    std.mem.copy(u8, name, layer.name);
+
                     try self.layers.append(Layer{
-                        .name = layer.name,
+                        .name = name,
                         .frames = frames,
                     });
                 },
                 else => {},
             }
+        }
+
+        // For each frame in the file.
+        for (raw_file.frames, 0..) |frame, frame_index| {
+            for (frame.chunks.items) |chunk| {
+                switch (chunk.data) {
+                    .cel => |cel| {
+                        self.layers.items[cel.layer_index].frames[frame_index] = .{
+                            .cel = .{
+                                .duration = frame.header.duration,
+                                .x_position = cel.x_position,
+                                .y_position = cel.y_position,
+                                .opacity_level = cel.opacity_level,
+                                .texture = try self.decodeTextureFromCelData(cel),
+                            },
+                        };
+                    },
+                    else => {},
+                }
+            }
+        }
+    }
+
+    fn decodeTextureFromCelData(self: *Self, cel: raw.CelChunk) !Texture {
+        switch (cel.data) {
+            .raw => |_raw| {
+                var data = try self.allocator.alloc(u8, _raw.width * _raw.height);
+
+                // Copy the data into the new buffer.
+                std.mem.copy(u8, data, _raw.data);
+
+                return .{
+                    .data_type = self.color_depth,
+                    .width = _raw.width,
+                    .height = _raw.height,
+                    .data = _raw.data,
+                };
+            },
+            .compressed_image => |compressed_image| {
+                // Create a stream from the compressed data.
+                var compressed_data_stream = std.io.FixedBufferStream([]u8){
+                    .pos = 0,
+                    .buffer = compressed_image.data,
+                };
+
+                // Create a stream to decompress the data.
+                var decompress_stream = try std.compress.zlib.decompressStream(
+                    self.allocator,
+                    compressed_data_stream.reader(),
+                );
+                defer decompress_stream.deinit();
+
+                // Calculate the size of the decompressed data.
+                const pixel_size: u16 = switch (self.color_depth) {
+                    .indexed => 1,
+                    .grayscale => 2,
+                    .rgba => 4,
+                };
+                const decompressed_size = (compressed_image.width - @as(u16, @intCast(cel.x_position))) * (compressed_image.height - @as(u16, @intCast(cel.y_position))) * pixel_size;
+
+                // Allocate space for the decompressed data.
+                var decompressed_data = try self.allocator.alloc(u8, decompressed_size);
+
+                // Decompress the data.
+                var bytes_read = try decompress_stream.read(decompressed_data);
+                if (bytes_read != decompressed_size) {
+                    return error.InvalidTexture;
+                }
+
+                return .{
+                    .data_type = self.color_depth,
+                    .width = compressed_image.width,
+                    .height = compressed_image.height,
+                    .data = decompressed_data,
+                };
+            },
+            else => {
+                return error.UnsupportedCelType;
+            },
         }
     }
 };
