@@ -18,6 +18,15 @@ pub fn build(b: *std.Build) void {
     });
     stb_image_write.addCSourceFile(.{ .file = .{ .path = "extern/stb/stb_image_write.c" }, .flags = &.{"-DSTB_IMAGE_WRITE_IMPLEMENTATION"} });
 
+    // Setup a library for stb_image_rect_pack
+    const stb_rect_pack = b.addStaticLibrary(.{
+        .name = "stb_rect_pack",
+        .root_source_file = null,
+        .target = target,
+        .optimize = optimize,
+    });
+    stb_rect_pack.addCSourceFile(.{ .file = .{ .path = "extern/stb/stb_rect_pack.c" }, .flags = &.{"-DSTB_RECT_PACK_IMPLEMENTATION"} });
+
     // Setup testing
     const module_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/tests.zig" },
@@ -26,6 +35,7 @@ pub fn build(b: *std.Build) void {
     });
     module_tests.addIncludePath(.{ .path = "extern/stb" });
     module_tests.linkLibrary(stb_image_write);
+    module_tests.linkLibrary(stb_rect_pack);
 
     const run_main_tests = b.addRunArtifact(module_tests);
     const test_step = b.step("test", "Run library tests");
