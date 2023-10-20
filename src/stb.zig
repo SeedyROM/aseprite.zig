@@ -48,7 +48,7 @@ test {
 const testing = std.testing;
 // Write a PNG image.
 test "image_write png" {
-    const filename = "zig-out/images/tesxt.png";
+    const filename = "zig-out/images/test.png";
     const width = 16;
     const height = 16;
     const channels = 4;
