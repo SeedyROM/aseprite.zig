@@ -11,6 +11,8 @@ This is a [Zig](https://ziglang.org/) library to read (possibly write) and work 
     - [ ] **TBD**
 - [ ] Create a powerful API to work with Aseprite files
 - [ ] Create a utility library/cli to make it easy to use Aseprite files in your own projects
+  - [ ] Create some simple wrappers around STB to load images from Aseprite files
+  - [ ] Create some more simple wrappers around STB to pack images into texture atlases/spritesheets
   - [ ] Create texture atlases from Aseprite files
 
 ## Non-goals (initially):
