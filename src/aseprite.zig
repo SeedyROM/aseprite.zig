@@ -371,16 +371,18 @@ pub const TextureAtlas = struct {
                 const texture = self.textures.items[rect_id];
 
                 // Write the texture data.
-                for (0..texture.height) |y| {
-                    for (0..texture.width) |x| {
-                        const texture_index = @as(usize, @intCast((y * texture.width + x) * 4));
-                        const data_index = @as(usize, @intCast(((rect.y + y) * self.actual_width + (rect.x + x)) * 4));
+                var y = @as(usize, @intCast(rect.y));
+                while (y < y + texture.height - 1) {
+                    var x = @as(usize, @intCast(rect.x));
+                    while (x < x + texture.width - 1) {
+                        const data_index = (y * self.actual_width + x);
 
-                        data[data_index + 0] = texture.data[texture_index + 0];
-                        data[data_index + 1] = texture.data[texture_index + 1];
-                        data[data_index + 2] = texture.data[texture_index + 2];
-                        data[data_index + 3] = texture.data[texture_index + 3];
+                        // Write the texture data.
+                        data[data_index] = texture.data[data_index];
+
+                        x += 4;
                     }
+                    y += 4;
                 }
             }
         }
@@ -392,31 +394,6 @@ pub const TextureAtlas = struct {
             .data = data,
         };
     }
-
-    // pub fn createTexture(self: *Self) !Texture {
-    //     const texture_size = @as(usize, @intCast(self.actual_width * self.actual_height)) * 4;
-
-    //     var data = try self.allocator.alloc(
-    //         u8,
-    //         texture_size,
-    //     );
-
-    //     // Write the texture data.
-    //     for (self.rects.items) |rect| {
-    //         if (rect.was_packed == 1) {
-    //             const rect_id = @as(usize, @intCast(rect.id));
-    //             const texture = self.textures.items[rect_id];
-
-    //         }
-    //     }
-
-    //     return .{
-    //         .data_type = TextureDataType.rgba,
-    //         .width = self.actual_width,
-    //         .height = self.actual_height,
-    //         .data = data,
-    //     };
-    // }
 
     /// Write the packed texture data to a file.
     pub fn writeToFile(self: *Self, path: []const u8) !void {
