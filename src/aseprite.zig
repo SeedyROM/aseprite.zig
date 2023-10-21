@@ -3,6 +3,7 @@ const fs = std.fs;
 const io = std.io;
 
 pub const raw = @import("raw.zig");
+const stb = @import("stb.zig");
 
 /// Kind of texture data.
 const TextureDataType = raw.ColorDepth;
@@ -145,7 +146,7 @@ pub const Sprite = struct {
             switch (chunk.data) {
                 // If the chunk is a layer chunk, add it to the list of layers.
                 .layer => |layer| {
-                    std.log.info("Found layer: {s}", .{layer.name});
+                    std.log.debug("Found layer: {s}", .{layer.name});
 
                     var frames = try self.allocator.alloc(Frame, raw_file.header.num_frames);
 
@@ -242,6 +243,196 @@ pub const Sprite = struct {
     }
 };
 
+pub const TextureAtlas = struct {
+    const Self = @This();
+    const Rect = stb.rect_pack.Rect;
+
+    allocator: std.mem.Allocator,
+    expected_width: u16,
+    expected_height: u16,
+    actual_width: u16 = 0,
+    actual_height: u16 = 0,
+    textures: std.ArrayList(Texture),
+    rects: std.ArrayList(Rect),
+    texture: ?Texture = null,
+
+    /// Initialize the atlas.
+    pub fn init(allocator: std.mem.Allocator, width: u16, height: u16) Self {
+        return Self{
+            .allocator = allocator,
+            .expected_width = width,
+            .expected_height = height,
+            .textures = std.ArrayList(Texture).init(allocator),
+            .rects = std.ArrayList(Rect).init(allocator),
+        };
+    }
+
+    /// Deinitialize the atlas.
+    pub fn deinit(self: *Self) void {
+        self.textures.deinit();
+        self.rects.deinit();
+
+        if (self.texture) |texture| {
+            texture.deinit(self.allocator);
+        }
+    }
+
+    /// Add a sprite to the atlas.
+    pub inline fn addSprite(self: *Self, sprite: Sprite) !void {
+        // TODO(SeedyROM): These layers need to be flattened and blended...
+        for (sprite.layers.items) |layer| {
+            for (layer.frames) |frame| {
+                // NOTE(SeedyROM): Is the id being sequential a bad idea?
+                try self.addTexture(self.textures.items.len, frame.getTexture());
+            }
+        }
+    }
+
+    /// Add a list of sprites to the atlas.
+    pub fn addSprites(self: *Self, sprites: []Sprite) !void {
+        for (sprites) |sprite| {
+            try self.addSprite(sprite);
+        }
+    }
+
+    /// Add a texture to the atlas.
+    pub fn addTexture(self: *Self, id: usize, texture: Texture) !void {
+        var rect = Rect{
+            .id = @as(c_int, @intCast(id)),
+            .x = 0,
+            .y = 0,
+            .w = texture.width,
+            .h = texture.height,
+            .was_packed = @intFromBool(false),
+        };
+
+        try self.textures.append(texture);
+        try self.rects.append(rect);
+    }
+
+    /// Pack the textures atthe
+    pub fn packTextures(self: *Self) !u16 {
+        // Create a context for the packer.
+        var context: stb.rect_pack.Context = undefined;
+
+        // Allocate space for the nodes.
+        var nodes = try self.allocator.alloc(stb.rect_pack.Node, self.rects.items.len);
+        defer self.allocator.free(nodes);
+
+        // Initialize the packer.
+        stb.rect_pack.initTarget(&context, self.expected_width, self.expected_height, nodes);
+
+        // Pack the textures.
+        const result = stb.rect_pack.packRects(&context, self.rects.items);
+        if (result == 0) {
+            return error.TexturePackFailed;
+        }
+
+        var rects_packed: u16 = 0;
+        // Get the width and height of the packed texture.
+        for (self.rects.items) |rect| {
+            std.log.debug("Packed texture: {}", .{rect});
+
+            if (rect.was_packed == 1) {
+                rects_packed += 1;
+            }
+
+            if (rect.x + rect.w > self.actual_width) {
+                self.actual_width = @as(u16, @intCast(rect.x + rect.w));
+            }
+            if (rect.y + rect.h > self.actual_height) {
+                self.actual_height = @as(u16, @intCast(rect.y + rect.h));
+            }
+        }
+
+        std.log.debug("Packed textures: {}", .{rects_packed});
+        std.log.debug("Packed texture width: {}", .{self.actual_width});
+        std.log.debug("Packed texture height: {}", .{self.actual_height});
+
+        return rects_packed;
+    }
+
+    /// Get the packed texture data.
+    pub fn createTexture(self: *Self) !Texture {
+        const texture_size = @as(usize, @intCast(self.actual_width * self.actual_height)) * 4;
+
+        var data = try self.allocator.alloc(
+            u8,
+            texture_size,
+        );
+
+        // Zero-initialize the data
+        @memset(data, 0);
+
+        // Write the texture data.
+        for (self.rects.items) |rect| {
+            if (rect.was_packed == 1) {
+                const rect_id = @as(usize, @intCast(rect.id));
+                const texture = self.textures.items[rect_id];
+
+                // Write the texture data.
+                for (0..texture.height) |y| {
+                    for (0..texture.width) |x| {
+                        const texture_index = @as(usize, @intCast((y * texture.width + x) * 4));
+                        const data_index = @as(usize, @intCast(((rect.y + y) * self.actual_width + (rect.x + x)) * 4));
+
+                        data[data_index + 0] = texture.data[texture_index + 0];
+                        data[data_index + 1] = texture.data[texture_index + 1];
+                        data[data_index + 2] = texture.data[texture_index + 2];
+                        data[data_index + 3] = texture.data[texture_index + 3];
+                    }
+                }
+            }
+        }
+
+        return Texture{
+            .data_type = TextureDataType.rgba,
+            .width = self.actual_width,
+            .height = self.actual_height,
+            .data = data,
+        };
+    }
+
+    // pub fn createTexture(self: *Self) !Texture {
+    //     const texture_size = @as(usize, @intCast(self.actual_width * self.actual_height)) * 4;
+
+    //     var data = try self.allocator.alloc(
+    //         u8,
+    //         texture_size,
+    //     );
+
+    //     // Write the texture data.
+    //     for (self.rects.items) |rect| {
+    //         if (rect.was_packed == 1) {
+    //             const rect_id = @as(usize, @intCast(rect.id));
+    //             const texture = self.textures.items[rect_id];
+
+    //         }
+    //     }
+
+    //     return .{
+    //         .data_type = TextureDataType.rgba,
+    //         .width = self.actual_width,
+    //         .height = self.actual_height,
+    //         .data = data,
+    //     };
+    // }
+
+    /// Write the packed texture data to a file.
+    pub fn writeToFile(self: *Self, path: []const u8) !void {
+        self.texture = try self.createTexture();
+
+        try stb.image_write.png(
+            path,
+            self.texture.?.width,
+            self.texture.?.height,
+            4,
+            self.texture.?.data,
+            self.texture.?.width * 4,
+        );
+    }
+};
+
 /// Load a sprite from an open file.
 pub fn fromFile(allocator: std.mem.Allocator, file: std.fs.File) !Sprite {
     return try Sprite.fromFile(allocator, file);
@@ -250,8 +441,6 @@ pub fn fromFile(allocator: std.mem.Allocator, file: std.fs.File) !Sprite {
 const testing = std.testing;
 
 test "sprite api" {
-    testing.log_level = .info;
-
     const file = try std.fs.cwd().openFile(
         "./sprites/simple.aseprite",
         .{ .mode = .read_only },
@@ -266,4 +455,33 @@ test "sprite api" {
 
     // Check that the sprite has 8 frames
     try testing.expectEqual(sprite.num_frames, 8);
+}
+
+test "texture atlas api" {
+    testing.log_level = .info;
+
+    const file = try std.fs.cwd().openFile(
+        "./sprites/simple.aseprite",
+        .{ .mode = .read_only },
+    );
+    defer file.close();
+
+    var sprite = try fromFile(testing.allocator, file);
+    defer sprite.deinit();
+
+    // Create a texture atlas.
+    var atlas = TextureAtlas.init(testing.allocator, 128, std.math.maxInt(u16));
+    defer atlas.deinit();
+
+    // Add sprites to the atlas.
+    for (0..16) |_| {
+        try atlas.addSprite(sprite);
+    }
+
+    // Pack the textures.
+    const packed_textures = try atlas.packTextures();
+    try testing.expectEqual(packed_textures, 128);
+
+    // Write the packed texture to a file.
+    try atlas.writeToFile("zig-out/images/test-atlas.png");
 }
