@@ -27,6 +27,9 @@ pub fn build(b: *std.Build) void {
     });
     stb_rect_pack.addCSourceFile(.{ .file = .{ .path = "extern/stb/stb_rect_pack.c" }, .flags = &.{"-DSTB_RECT_PACK_IMPLEMENTATION"} });
 
+    // Create a step to make the image output directory
+    const make_image_output_dir = MakeDirStep.create(b, "zig-out/images");
+
     // Setup testing
     const module_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/tests.zig" },
@@ -40,4 +43,31 @@ pub fn build(b: *std.Build) void {
     const run_main_tests = b.addRunArtifact(module_tests);
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&run_main_tests.step);
+    test_step.dependOn(&make_image_output_dir.step);
 }
+
+const MakeDirStep = struct {
+    step: std.build.Step,
+    path: []const u8,
+
+    pub fn create(owner: *std.Build, path: []const u8) *MakeDirStep {
+        const self = owner.allocator.create(MakeDirStep) catch @panic("OOM");
+        self.* = .{
+            .step = std.Build.Step.init(.{
+                .id = .custom,
+                .name = "MakeDir",
+                .owner = owner,
+                .makeFn = make,
+            }),
+            .path = path,
+        };
+        return self;
+    }
+
+    fn make(step: *std.build.Step, prog_node: *std.Progress.Node) !void {
+        _ = prog_node;
+        const self = @fieldParentPtr(MakeDirStep, "step", step);
+
+        try std.fs.cwd().makePath(self.path); // or one of the other functions that make a directory
+    }
+};
