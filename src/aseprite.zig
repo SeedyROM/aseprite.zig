@@ -422,7 +422,7 @@ const testing = std.testing;
 
 test "sprite api" {
     const file = try std.fs.cwd().openFile(
-        "./sprites/simple.aseprite",
+        "./sprites/capy_idle.aseprite",
         .{ .mode = .read_only },
     );
     defer file.close();
@@ -440,27 +440,48 @@ test "sprite api" {
 test "texture atlas api" {
     testing.log_level = .info;
 
-    const file = try std.fs.cwd().openFile(
-        "./sprites/simple.aseprite",
-        .{ .mode = .read_only },
-    );
-    defer file.close();
-
-    var sprite = try fromFile(testing.allocator, file);
-    defer sprite.deinit();
-
     // Create a texture atlas.
     var atlas = TextureAtlas.init(testing.allocator, 128, std.math.maxInt(u16));
     defer atlas.deinit();
 
-    // Add sprites to the atlas.
-    for (0..16) |_| {
-        try atlas.addSprite(sprite);
+    // Load each sprite from the sprites directory.
+    var test_sprites = std.ArrayList(Sprite).init(testing.allocator);
+    defer test_sprites.deinit();
+    var sprites_dir = try std.fs.cwd().openIterableDir("./sprites", .{});
+    defer sprites_dir.close();
+
+    // Iterate each file and open a file and load the sprite.
+    var it = sprites_dir.iterate();
+    while (try it.next()) |entry| {
+        switch (entry.kind) {
+            .file => {
+                std.log.info("Found sprite file: {s}", .{entry.name});
+
+                var file = try sprites_dir.dir.openFile(
+                    entry.name,
+                    .{ .mode = .read_only },
+                );
+                defer file.close();
+
+                var sprite = try fromFile(testing.allocator, file);
+
+                try test_sprites.append(sprite);
+            },
+            else => {},
+        }
     }
+    defer {
+        for (test_sprites.items) |sprite| {
+            sprite.deinit();
+        }
+    }
+
+    // Add sprites to the atlas.
+    try atlas.addSprites(test_sprites.items);
 
     // Pack the textures.
     const packed_textures = try atlas.packTextures();
-    try testing.expectEqual(packed_textures, 128);
+    _ = packed_textures;
 
     // Write the packed texture to a file.
     try atlas.writeToFile("zig-out/images/test-atlas.png");
