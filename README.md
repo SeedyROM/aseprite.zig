@@ -1,19 +1,19 @@
 # aseprite.zig
 
-<!-- [![Build Status](https://travis-ci.org/aseprite/aseprite.zig.svg?branch=master)](https://travis-ci.org/aseprite/aseprite.zig) -->
+[![Build Status](https://travis-ci.org/SeedyROM/aseprite.zig.svg?branch=main)](https://travis-ci.org/SeedyROM/aseprite.zig)
 
 This is a [Zig](https://ziglang.org/) library to read (possibly write) and work with [Aseprite](https://www.aseprite.org/) files.
 
 ## Goals:
 
-- [ ] Support a large subset of the Aseprite file format
-    - [x] Read .aseprite files
-    - [ ] **TBD**
-- [ ] Create a powerful API to work with Aseprite files
-- [ ] Create a utility library/cli to make it easy to use Aseprite files in your own projects
-  - [ ] Create some simple wrappers around STB to load images from Aseprite files
-  - [ ] Create some more simple wrappers around STB to pack images into texture atlases/spritesheets
-  - [ ] Create texture atlases from Aseprite files
+- [x] Support a large subset of the Aseprite file format
+    - [x] Load images from .aseprite files
+      - [x] Handle zlib-compressed chunks and raw chunks
+      - [x] Handle all color modes
+    - [ ] Load tilemaps from .aseprite files 
+- [x] Create a simple but powerful API to work with Aseprite files
+  - [x] Create some more simple wrappers around STB to pack images into texture atlases/spritesheets
+  - [x] Create texture atlases from Aseprite files
 
 ## Non-goals (initially):
 
