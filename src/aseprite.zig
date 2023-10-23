@@ -455,7 +455,7 @@ test "texture atlas api" {
     while (try it.next()) |entry| {
         switch (entry.kind) {
             .file => {
-                std.log.info("Found sprite file: {s}", .{entry.name});
+                std.log.debug("Found sprite file: {s}", .{entry.name});
 
                 var file = try sprites_dir.dir.openFile(
                     entry.name,
