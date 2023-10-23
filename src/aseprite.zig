@@ -369,7 +369,7 @@ pub const TextureAtlas = struct {
         // Get a ptr to the slice as u32s.
         var data = std.mem.bytesAsSlice(u32, raw_data);
 
-        // Write the texture data as u8s that will be interpreted as RGBA.
+        // Write the texture data as u32s.
         for (self.rects.items) |rect| {
             if (rect.was_packed == 1) {
                 const rect_id = @as(usize, @intCast(rect.id));

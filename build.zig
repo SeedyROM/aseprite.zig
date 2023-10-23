@@ -46,6 +46,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&make_image_output_dir.step);
 }
 
+/// A step that creates a directory
 const MakeDirStep = struct {
     step: std.build.Step,
     path: []const u8,
@@ -64,10 +65,9 @@ const MakeDirStep = struct {
         return self;
     }
 
-    fn make(step: *std.build.Step, prog_node: *std.Progress.Node) !void {
-        _ = prog_node;
+    fn make(step: *std.build.Step, _: *std.Progress.Node) !void {
         const self = @fieldParentPtr(MakeDirStep, "step", step);
 
-        try std.fs.cwd().makePath(self.path); // or one of the other functions that make a directory
+        try std.fs.cwd().makePath(self.path);
     }
 };
