@@ -7,6 +7,9 @@ const c = @cImport({
 
 /// A wrapper around stb_image_write.
 pub const image_write = struct {
+    /// Set compression level for PNG.
+    pub const PngCompressionLevel = c.stbi_write_png_compression_level;
+
     /// Writes a PNG file.
     pub fn png(
         filename: []const u8,
@@ -30,20 +33,43 @@ pub const image_write = struct {
 };
 
 /// A wrapper around stb_rect_pack.
-pub const rect_pack = struct {};
+pub const rect_pack = struct {
+    pub const Context = c.stbrp_context;
+    pub const Node = c.stbrp_node;
+    pub const Rect = c.stbrp_rect;
 
-/// Create a directory for writing images in zig-out.
-fn create_image_write_path() !void {
-    const path = "zig-out/images";
-    std.fs.cwd().makeDir(path) catch |err| {
-        if (err == error.PathAlreadyExists) {}
-    };
-}
+    /// Initializes a context.
+    pub fn initTarget(
+        context: *Context,
+        width: u16,
+        height: u16,
+        nodes: []Node,
+    ) void {
+        c.stbrp_init_target(
+            context,
+            @as(c_int, @intCast(width)),
+            @as(c_int, @intCast(height)),
+            @ptrCast(nodes),
+            @as(c_int, @intCast(nodes.len)),
+        );
+    }
 
-// Call this before any tests that write images.
-test {
-    try create_image_write_path();
-}
+    /// Pack rectangles into a context.
+    /// Returns the number of rectangles that were packed.
+    ///
+    /// If the return value is less than the number of rectangles, then some rectangles
+    /// were not packed.
+    pub fn packRects(
+        context: *Context,
+        rects: []Rect,
+    ) usize {
+        return @as(usize, @intCast(c.stbrp_pack_rects(
+            context,
+            rects.ptr,
+            @as(c_int, @intCast(rects.len)),
+        )));
+    }
+};
 
 const testing = std.testing;
 // Write a PNG image.
