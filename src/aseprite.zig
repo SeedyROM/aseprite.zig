@@ -399,9 +399,14 @@ pub const TextureAtlas = struct {
     }
 
     /// Write the packed texture data to a file.
-    pub fn writeToFile(self: *Self, path: []const u8) !void {
+    pub fn writeTextureToFile(self: *Self, path: []const u8) !void {
+        // TODO(SeedyROM): Add check for file extension and write the correct format.
+        // Defaults to PNG always for now.
+
+        // Create the texture.
         self.texture = try self.createTexture();
 
+        // Write the texture data to a file.
         try stb.image_write.png(
             path,
             self.texture.?.width,
@@ -484,5 +489,9 @@ test "texture atlas api" {
     _ = packed_textures;
 
     // Write the packed texture to a file.
-    try atlas.writeToFile("zig-out/images/test-atlas.png");
+    try atlas.writeTextureToFile("zig-out/images/test-atlas.png");
+
+    // Write the packed texture and atlas data to a file.
+    // TODO(SeedyROM): Add support for writing atlas data.
+    // try atlas.writeAtlasDataToFile("zig-out/images/test-atlas.png", "zig-out/images/test-atlas.json");
 }
