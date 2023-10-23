@@ -445,8 +445,14 @@ test "sprite api" {
 test "texture atlas api" {
     testing.log_level = .info;
 
+    // TODO(SeedyROM): Get a heuristic for the size of the atlas.
+    // My current idea is to create a set of the widths, get the median, and use that.
+    // The height would be the sum of the heights???
+
+    // NOTE(SeedyROM): In this test we're using 13 (the main sprite width) and 4 of it as the span.
+
     // Create a texture atlas.
-    var atlas = TextureAtlas.init(testing.allocator, 128, std.math.maxInt(u16));
+    var atlas = TextureAtlas.init(testing.allocator, 13 * 4, std.math.maxInt(u16));
     defer atlas.deinit();
 
     // Load each sprite from the sprites directory.
@@ -475,6 +481,8 @@ test "texture atlas api" {
             else => {},
         }
     }
+
+    // Free each loaded sprite.
     defer {
         for (test_sprites.items) |sprite| {
             sprite.deinit();
@@ -486,7 +494,15 @@ test "texture atlas api" {
 
     // Pack the textures.
     const packed_textures = try atlas.packTextures();
-    _ = packed_textures;
+
+    // Check that the atlas packed all the textures.
+    var test_packed_textures: u16 = 0;
+    for (atlas.rects.items) |rect| {
+        if (rect.was_packed == 1) {
+            test_packed_textures += 1;
+        }
+    }
+    try testing.expectEqual(packed_textures, test_packed_textures);
 
     // Write the packed texture to a file.
     try atlas.writeTextureToFile("zig-out/images/test-atlas.png");
