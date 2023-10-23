@@ -151,7 +151,7 @@ pub const Sprite = struct {
                     var frames = try self.allocator.alloc(Frame, raw_file.header.num_frames);
 
                     const name = try self.allocator.alloc(u8, layer.name.len);
-                    std.mem.copy(u8, name, layer.name);
+                    @memcpy(name, layer.name);
 
                     try self.layers.append(Layer{
                         .name = name,
@@ -356,34 +356,20 @@ pub const TextureAtlas = struct {
     pub fn createTexture(self: *Self) !Texture {
         const texture_size = @as(usize, @intCast(self.actual_width * self.actual_height)) * 4;
 
+        // Allocate and initialize the texture data.
         var data = try self.allocator.alloc(
             u8,
             texture_size,
         );
-
-        // Zero-initialize the data
         @memset(data, 0);
 
-        // Write the texture data.
+        // TODO(SeedyROM): This doesn't work yet.
+        // Write the texture data as u8s that will be interpreted as RGBA.
         for (self.rects.items) |rect| {
             if (rect.was_packed == 1) {
                 const rect_id = @as(usize, @intCast(rect.id));
                 const texture = self.textures.items[rect_id];
-
-                // Write the texture data.
-                var y = @as(usize, @intCast(rect.y));
-                while (y < y + texture.height - 1) {
-                    var x = @as(usize, @intCast(rect.x));
-                    while (x < x + texture.width - 1) {
-                        const data_index = (y * self.actual_width + x);
-
-                        // Write the texture data.
-                        data[data_index] = texture.data[data_index];
-
-                        x += 4;
-                    }
-                    y += 4;
-                }
+                _ = texture;
             }
         }
 
