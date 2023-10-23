@@ -1,7 +1,5 @@
 # aseprite.zig
 
-[![Build Status](https://travis-ci.org/SeedyROM/aseprite.zig.svg?branch=main)](https://travis-ci.org/SeedyROM/aseprite.zig)
-
 This is a [Zig](https://ziglang.org/) library to read (possibly write) and work with [Aseprite](https://www.aseprite.org/) files.
 
 ## Examples:
