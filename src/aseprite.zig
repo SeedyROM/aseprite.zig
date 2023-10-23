@@ -218,7 +218,9 @@ pub const Sprite = struct {
                     .grayscale => 2,
                     .rgba => 4,
                 };
-                const decompressed_size = (compressed_image.width - @as(u16, @intCast(cel.x_position))) * (compressed_image.height - @as(u16, @intCast(cel.y_position))) * pixel_size;
+                const decompressed_width = compressed_image.width;
+                const decompressed_height = compressed_image.height;
+                const decompressed_size = decompressed_width * decompressed_height * pixel_size;
 
                 // Allocate space for the decompressed data.
                 var decompressed_data = try self.allocator.alloc(u8, decompressed_size);
@@ -231,8 +233,8 @@ pub const Sprite = struct {
 
                 return .{
                     .data_type = self.color_depth,
-                    .width = compressed_image.width,
-                    .height = compressed_image.height,
+                    .width = decompressed_width,
+                    .height = decompressed_height,
                     .data = decompressed_data,
                 };
             },
@@ -354,22 +356,37 @@ pub const TextureAtlas = struct {
 
     /// Get the packed texture data.
     pub fn createTexture(self: *Self) !Texture {
+        // Get the size of the texture data.
         const texture_size = @as(usize, @intCast(self.actual_width * self.actual_height)) * 4;
 
         // Allocate and initialize the texture data.
-        var data = try self.allocator.alloc(
+        var raw_data = try self.allocator.alloc(
             u8,
             texture_size,
         );
-        @memset(data, 0);
+        @memset(raw_data, 0);
 
-        // TODO(SeedyROM): This doesn't work yet.
+        // Get a ptr to the slice as u32s.
+        var data = std.mem.bytesAsSlice(u32, raw_data);
+
         // Write the texture data as u8s that will be interpreted as RGBA.
         for (self.rects.items) |rect| {
             if (rect.was_packed == 1) {
                 const rect_id = @as(usize, @intCast(rect.id));
-                const texture = self.textures.items[rect_id];
-                _ = texture;
+                const texture = std.mem.bytesAsSlice(u32, self.textures.items[rect_id].data);
+                const rect_x = @as(usize, @intCast(rect.x));
+                const rect_y = @as(usize, @intCast(rect.y));
+                const rect_w = @as(usize, @intCast(rect.w));
+                const rect_h = @as(usize, @intCast(rect.h));
+
+                for (0..rect_h) |y| {
+                    for (0..rect_w) |x| {
+                        const atlas_index = (rect_y + y) * self.actual_width + (rect_x + x);
+                        const texture_index = y * rect_w + x;
+
+                        data[atlas_index] = texture[texture_index];
+                    }
+                }
             }
         }
 
@@ -377,7 +394,7 @@ pub const TextureAtlas = struct {
             .data_type = TextureDataType.rgba,
             .width = self.actual_width,
             .height = self.actual_height,
-            .data = data,
+            .data = raw_data,
         };
     }
 
