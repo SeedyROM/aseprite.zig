@@ -31,10 +31,12 @@ pub fn build(b: *std.Build) void {
     const make_image_output_dir = MakeDirStep.create(b, "zig-out/images");
 
     // Setup testing
+    const tests_filter = b.option([]const u8, "filter", "Filter for tests to run");
     const module_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/tests.zig" },
         .target = target,
         .optimize = optimize,
+        .filter = tests_filter,
     });
     module_tests.addIncludePath(.{ .path = "extern/stb" });
     module_tests.linkLibrary(stb_image_write);

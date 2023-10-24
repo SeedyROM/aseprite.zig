@@ -593,7 +593,7 @@ test "raw parsing" {
     var test_file_size: u32 = undefined;
     {
         const file = try std.fs.cwd().openFile(
-            "./sprites/capy_idle.aseprite",
+            "./sprites/simple/capy_idle.aseprite",
             .{ .mode = .read_only },
         );
         defer file.close();
@@ -604,7 +604,7 @@ test "raw parsing" {
 
     // Open the aseprite file
     const file = try std.fs.cwd().openFile(
-        "./sprites/capy_idle.aseprite",
+        "./sprites/simple/capy_idle.aseprite",
         .{ .mode = .read_only },
     );
     defer file.close();

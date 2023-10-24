@@ -249,6 +249,26 @@ pub const TextureAtlas = struct {
     const Self = @This();
     const Rect = stb.rect_pack.Rect;
 
+    const AtlasRect = struct {
+        was_packed: bool,
+        id: usize,
+        x: usize,
+        y: usize,
+        w: usize,
+        h: usize,
+
+        pub fn fromTextureRect(rect: Rect) AtlasRect {
+            return .{
+                .was_packed = rect.was_packed != 1,
+                .id = @as(usize, @intCast(rect.id)),
+                .x = @as(usize, @intCast(rect.x)),
+                .y = @as(usize, @intCast(rect.y)),
+                .w = @as(usize, @intCast(rect.w)),
+                .h = @as(usize, @intCast(rect.h)),
+            };
+        }
+    };
+
     allocator: std.mem.Allocator,
     expected_width: u16,
     expected_height: u16,
@@ -370,19 +390,15 @@ pub const TextureAtlas = struct {
         var data = std.mem.bytesAsSlice(u32, raw_data);
 
         // Write the texture data as u32s.
-        for (self.rects.items) |rect| {
-            if (rect.was_packed == 1) {
-                const rect_id = @as(usize, @intCast(rect.id));
-                const texture = std.mem.bytesAsSlice(u32, self.textures.items[rect_id].data);
-                const rect_x = @as(usize, @intCast(rect.x));
-                const rect_y = @as(usize, @intCast(rect.y));
-                const rect_w = @as(usize, @intCast(rect.w));
-                const rect_h = @as(usize, @intCast(rect.h));
+        for (self.rects.items) |_rect| {
+            const rect = AtlasRect.fromTextureRect(_rect);
+            if (rect.was_packed) {
+                const texture = std.mem.bytesAsSlice(u32, self.textures.items[rect.id].data);
 
-                for (0..rect_h) |y| {
-                    for (0..rect_w) |x| {
-                        const atlas_index = (rect_y + y) * self.actual_width + (rect_x + x);
-                        const texture_index = y * rect_w + x;
+                for (0..rect.h) |y| {
+                    for (0..rect.w) |x| {
+                        const atlas_index = (rect.y + y) * self.actual_width + (rect.x + x);
+                        const texture_index = y * rect.w + x;
 
                         data[atlas_index] = texture[texture_index];
                     }
@@ -425,9 +441,9 @@ pub fn fromFile(allocator: std.mem.Allocator, file: std.fs.File) !Sprite {
 
 const testing = std.testing;
 
-test "sprite api" {
+test "simple sprite api" {
     const file = try std.fs.cwd().openFile(
-        "./sprites/capy_idle.aseprite",
+        "./sprites/simple/capy_idle.aseprite",
         .{ .mode = .read_only },
     );
     defer file.close();
@@ -442,9 +458,20 @@ test "sprite api" {
     try testing.expectEqual(sprite.num_frames, 8);
 }
 
-test "texture atlas api" {
-    testing.log_level = .info;
+test "complex sprite api" {
+    testing.log_level = .debug;
 
+    const file = try std.fs.cwd().openFile(
+        "./sprites/complex/gumdrop.aseprite",
+        .{ .mode = .read_only },
+    );
+    defer file.close();
+
+    var sprite = try fromFile(testing.allocator, file);
+    defer sprite.deinit();
+}
+
+test "simple texture atlas api" {
     // TODO(SeedyROM): Get a heuristic for the size of the atlas.
     // My current idea is to create a set of the widths, get the median, and use that.
     // The height would be the sum of the heights???
@@ -458,7 +485,7 @@ test "texture atlas api" {
     // Load each sprite from the sprites directory.
     var test_sprites = std.ArrayList(Sprite).init(testing.allocator);
     defer test_sprites.deinit();
-    var sprites_dir = try std.fs.cwd().openIterableDir("./sprites", .{});
+    var sprites_dir = try std.fs.cwd().openIterableDir("./sprites/simple", .{});
     defer sprites_dir.close();
 
     // Iterate each file and open a file and load the sprite.
