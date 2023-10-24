@@ -120,7 +120,7 @@ pub const Sprite = struct {
 
     /// Get a layer by index.
     pub fn getLayerByIndex(self: *const Self, index: u16) ?Layer {
-        if (index >= self.layers.len) {
+        if (index >= self.layers.items.len) {
             return null;
         }
 
@@ -149,8 +149,11 @@ pub const Sprite = struct {
                     std.log.debug("Found layer: {s}", .{layer.name});
 
                     var frames = try self.allocator.alloc(Frame, raw_file.header.num_frames);
+                    errdefer self.allocator.free(frames);
 
                     const name = try self.allocator.alloc(u8, layer.name.len);
+                    errdefer self.allocator.free(name);
+
                     @memcpy(name, layer.name);
 
                     try self.layers.append(Layer{
@@ -187,6 +190,7 @@ pub const Sprite = struct {
         switch (cel.data) {
             .raw => |_raw| {
                 var data = try self.allocator.alloc(u8, _raw.width * _raw.height);
+                errdefer self.allocator.free(data);
 
                 // Copy the data into the new buffer.
                 std.mem.copy(u8, data, _raw.data);
@@ -224,6 +228,7 @@ pub const Sprite = struct {
 
                 // Allocate space for the decompressed data.
                 var decompressed_data = try self.allocator.alloc(u8, decompressed_size);
+                errdefer self.allocator.free(decompressed_data);
 
                 // Decompress the data.
                 var bytes_read = try decompress_stream.read(decompressed_data);
@@ -237,6 +242,30 @@ pub const Sprite = struct {
                     .height = decompressed_height,
                     .data = decompressed_data,
                 };
+            },
+            .linked => |linked| {
+                // Get the frame that this cel is linked to.
+                const linked_frame = self.getLayerByIndex(linked.frame_position);
+                if (linked_frame) |frame| {
+                    // Get the texture from the linked frame.
+                    const texture = frame.getTexture();
+
+                    // Allocate space for the texture data.
+                    var data = try self.allocator.alloc(u8, texture.width * texture.height);
+                    errdefer self.allocator.free(data);
+
+                    // Copy the data into the new buffer.
+                    @memcpy(data, texture.data);
+
+                    return .{
+                        .data_type = texture.data_type,
+                        .width = texture.width,
+                        .height = texture.height,
+                        .data = data,
+                    };
+                }
+
+                return error.InvalidTexture;
             },
             else => {
                 return error.UnsupportedCelType;
@@ -339,6 +368,7 @@ pub const TextureAtlas = struct {
 
         // Allocate space for the nodes.
         var nodes = try self.allocator.alloc(stb.rect_pack.Node, self.rects.items.len);
+        errdefer self.allocator.free(nodes);
         defer self.allocator.free(nodes);
 
         // Initialize the packer.
@@ -384,6 +414,8 @@ pub const TextureAtlas = struct {
             u8,
             texture_size,
         );
+        errdefer self.allocator.free(raw_data);
+
         @memset(raw_data, 0);
 
         // Get a ptr to the slice as u32s.

@@ -195,6 +195,8 @@ fn parseLayerChunk(allocator: std.mem.Allocator, reader: anytype) !ChunkData {
 
     // Allocate the name buffer.
     const name = try allocator.alloc(u8, name_size);
+    errdefer allocator.free(name);
+
     var bytes_read = try reader.read(name);
     if (bytes_read != name_size) {
         return error.InvalidLayerChunk;
@@ -252,6 +254,7 @@ fn parseColorProfileChunk(allocator: std.mem.Allocator, reader: anytype) !ChunkD
         .embedded_icc_profile => {
             icc_data_length = try reader.readInt(u32, .Little);
             var icc_data_buf = try allocator.alloc(u8, icc_data_length);
+            errdefer allocator.free(icc_data_buf);
 
             // Check that we read the correct number of bytes.
             var bytes_read = try reader.read(icc_data_buf);
@@ -289,7 +292,7 @@ pub const CelChunkData = union(enum) {
         data: []u8,
     },
     linked: struct {
-        frame_position: u32,
+        frame_position: u16,
     },
     compressed_image: struct {
         width: u16,
@@ -359,7 +362,7 @@ pub fn parseCelChunk(allocator: std.mem.Allocator, reader: anytype, size: u32) !
             return error.UnsupportedCelType;
         },
         .linked => {
-            const frame_position = try reader.readInt(u32, .Little);
+            const frame_position = try reader.readInt(u16, .Little);
 
             data = CelChunkData{
                 .linked = .{
@@ -374,6 +377,8 @@ pub fn parseCelChunk(allocator: std.mem.Allocator, reader: anytype, size: u32) !
             // Calculate the length of the image data by subtracting the size of the header, width and height fields.
             const image_data_length = size - 26;
             const image_data = try allocator.alloc(u8, image_data_length);
+            errdefer allocator.free(image_data);
+
             var bytes_read = try reader.read(image_data);
             if (bytes_read != image_data_length) {
                 return error.InvalidCelChunk;
@@ -430,6 +435,7 @@ pub const ChunkType = enum(u16) {
     palette = 0x2019,
     user_data = 0x2020,
     slice = 0x2022,
+    tileset = 0x2023,
 };
 
 /// The chunk types in an Aseprite file.
@@ -574,6 +580,8 @@ pub fn parseRaw(allocator: std.mem.Allocator, stream: anytype) !File {
     std.log.debug("Header: {}", .{header});
 
     var frames = try allocator.alloc(RawFrame, header.num_frames);
+    errdefer allocator.free(frames);
+
     for (0..header.num_frames) |i| {
         const frame = try parseFrame(allocator, reader);
         frames[i] = frame;
